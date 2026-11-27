@@ -73,12 +73,16 @@ public static class ImgTool {
 }
 "@
 
+$navegador = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 function Con-Reintentos([scriptblock]$accion) {
-  $espera = 5
+  $espera = 15
   for ($i = 1; $i -le 6; $i++) {
     try { return & $accion } catch {
+      $det = "$($_.Exception.Message) $($_.ErrorDetails.Message)" -replace '\s+', ' '
+      if ($det.Length -gt 300) { $det = $det.Substring(0, 300) }
+      if ($env:GITHUB_ACTIONS) { Write-Host "::warning::Intento $i fallido: $det" }
       if ($i -eq 6) { throw }
-      Write-Warning "Intento $i fallido ($($_.Exception.Message)); reintentando en $espera s"
+      Write-Warning "Intento $i fallido ($det); reintentando en $espera s"
       Start-Sleep -Seconds $espera; $espera *= 2
     }
   }
@@ -110,8 +114,8 @@ foreach ($col in $cfg.colecciones) {
     if ($DatosLocales) {
       $json = Leer-Texto (Join-Path $DatosLocales "$($col.handle)-$pag.json") | ConvertFrom-Json
     } else {
-      $json = (Con-Reintentos { Invoke-WebRequest -UseBasicParsing $url }).Content | ConvertFrom-Json
-      Start-Sleep -Milliseconds 500
+      $json = (Con-Reintentos { Invoke-WebRequest -UseBasicParsing $url -UserAgent $navegador -Headers @{ "Accept" = "application/json,text/html;q=0.9,*/*;q=0.8"; "Accept-Language" = "es-MX,es;q=0.9" } }).Content | ConvertFrom-Json
+      Start-Sleep -Seconds 3
     }
     foreach ($p in $json.products) {
       if ($vistos.ContainsKey($p.handle)) { continue }
@@ -154,7 +158,7 @@ foreach ($p in $publicar) {
   try {
     $sep = $(if ($p.src.Contains("?")) { "&" } else { "?" })
     $u = $p.src + $sep + "width=1000"
-    $bytes = Con-Reintentos { $wc.DownloadData($u) }
+    $bytes = Con-Reintentos { $wc.Headers["User-Agent"] = $navegador; $wc.DownloadData($u) }
     if ([ImgTool]::Limpiar($bytes, $archivo, 800, 85) -eq "limpia") { $limpias += $p.t }
     $manifiesto[$p.h] = $p.src; $nuevas++
   } catch { $fallidas++; Write-Warning "No se pudo descargar la imagen de $($p.t): $_" }
