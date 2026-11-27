@@ -1,0 +1,89 @@
+name: Actualizar catálogo
+
+on:
+  schedule:
+    - cron: "0 12 * * *"   # todos los días a las 6:00 a.m. (hora del centro de México)
+  workflow_dispatch:         # botón "Run workflow" para actualizar al momento
+  push:
+    branches: [main]
+    paths-ignore:
+      - "img/**"
+      - "imagenes.json"
+      - "GUIA.md"
+
+permissions:
+  contents: write
+  issues: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: actualizar
+  cancel-in-progress: false
+
+jobs:
+  generar:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generar sitio
+        shell: powershell
+        run: |
+          $owner = "${{ github.repository_owner }}".ToLower()
+          $repo = "${{ github.event.repository.name }}"
+          $base = "https://$owner.github.io/$repo/"
+          if ($repo.ToLower() -eq "$owner.github.io") { $base = "https://$owner.github.io/" }
+          powershell -NoProfile -ExecutionPolicy Bypass -File generar.ps1 -Salida _sitio -BaseUrl $base
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Guardar fotos nuevas
+        shell: powershell
+        run: |
+          git config user.name "actualizador-catalogo"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add img imagenes.json
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m "Actualizar fotos del catalogo"
+            git push
+          }
+          exit 0
+
+      - name: Avisar de marcas nuevas
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if (-not (Test-Path marcas-nuevas.txt)) { exit 0 }
+          $titulo = "Marcas nuevas sin aumento"
+          $cuerpo = "Aparecieron perfumes de marcas que no están en incrementos-por-marca.csv. **No se publican** hasta que les pongas un aumento.`n`nAgrega una línea por marca en el archivo incrementos-por-marca.csv (por ejemplo: Marca,250) y guarda los cambios. El catálogo se actualiza solo.`n`n" + (Get-Content marcas-nuevas.txt -Raw -Encoding UTF8)
+          [IO.File]::WriteAllText("$PWD\cuerpo.md", $cuerpo, (New-Object Text.UTF8Encoding($false)))
+          $abierto = gh issue list --state open --search "in:title $titulo" --json number --jq ".[0].number"
+          if ($abierto) { gh issue comment $abierto --body-file cuerpo.md } else { gh issue create --title $titulo --body-file cuerpo.md }
+          exit 0
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sitio
+          path: _sitio
+          include-hidden-files: true
+
+  publicar:
+    needs: generar
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sitio
+          path: _sitio
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _sitio
+      - id: deploy
+        uses: actions/deploy-pages@v4

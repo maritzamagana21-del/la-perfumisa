@@ -1,0 +1,9 @@
+{
+  "nombre": "La Perfumisa",
+  "whatsapp": "523322320521",
+  "tienda_origen": "https://perfumeriasublime.com",
+  "colecciones": [
+    { "handle": "perfumes-caballero", "clave": "caballero", "etiqueta": "Caballero" },
+    { "handle": "perfumes-dama", "clave": "dama", "etiqueta": "Dama" }
+  ]
+}
